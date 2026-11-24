@@ -1,0 +1,66 @@
+name: Deploy Profile to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare site from uploaded ZIP
+        run: |
+          set -euo pipefail
+          mkdir -p extracted public
+          ZIP_FILE="$(find . -maxdepth 1 -type f -iname '*.zip' | head -n 1)"
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No ZIP archive found in repository root"
+            exit 1
+          fi
+          unzip -q "$ZIP_FILE" -d extracted
+          INDEX_FILE="$(find extracted -type f -iname 'index.html' | head -n 1)"
+          if [ -z "$INDEX_FILE" ]; then
+            echo "index.html not found inside uploaded archive"
+            find extracted -maxdepth 3 -type f | head -100
+            exit 1
+          fi
+          SITE_DIR="$(dirname "$INDEX_FILE")"
+          cp -a "$SITE_DIR"/. public/
+          if [ ! -f public/index.html ]; then
+            echo "Site root index.html was not copied"
+            exit 1
+          fi
+          echo "Published files:"
+          find public -maxdepth 2 -type f | head -100
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
